@@ -1,0 +1,272 @@
+---
+title: "Project_3_ShubhamTomar"
+output: html_document
+date: "2022-10-09"
+---
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(stringr)
+```
+
+
+```{r}
+b_lyrics <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-29/beyonce_lyrics.csv')
+ts_lyrics <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-29/taylor_swift_lyrics.csv')
+sales <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-09-29/sales.csv')
+```
+
+
+
+
+#Part 1: Explore album sales
+
+##Part 1A: Data wrangling
+```{r}
+sales_1 <- sales %>%
+   mutate(released = str_remove(released, "\\(.*")) 
+
+x<- mdy(sales_1$released)
+
+sales_1 <- sales_1 %>% 
+  mutate(released = x)
+ 
+sales_2 <- sales_1 %>% 
+  mutate(country = fct_collapse(sales_1$country, "FR"= c("FRA", "FR"), "World"= c("WW", "World"))) %>%
+  group_by(country) %>%
+  filter(country %in% c("US", "UK", "World"))
+
+sales_2[c("sales")] <- sales_2[c("sales")]/1e6
+
+sales_2
+```
+
+##Part 1B: Only US Albums
+```{r}
+sales_3 <- sales_2 %>% group_by(country) %>%
+  filter(country %in% c("US"))
+
+release_date <- sales_3$released
+today <- ymd(20221013)
+interval(release_date, today)
+years_since_release <- interval(release_date, today) %>%
+  as.numeric('years') %>% 
+  round(digits = 0)
+
+sales_4 <- sales_3 %>% mutate(years_since_release)
+
+sales_4 %>%
+  summarise(years_since_release, median = median(years_since_release), oldest = max(years_since_release), newest= min(years_since_release))
+```
+
+##Part 1C: Percent stacked barchart:
+```{r}
+library(dplyr)
+
+graph_data <- sales_2 %>%
+  group_by(artist, country) %>%
+  summarise(TotalSales=sum(sales))
+
+library(ggplot2)
+graph_data %>% 
+  ggplot(aes(fill= country ,y= TotalSales, x= artist)) +
+  geom_bar(position="fill", stat="identity") +
+  labs(title = "Percent stacked barchart", x= "Artist", y= "Percentage of sales of studio albums (in millions)")
+  
+```
+
+##Part 1D: Sales
+
+```{r}
+sales_5 <- sales_2 %>%
+           filter(country== 'World')
+
+sales_5 %>%
+  ggplot(aes(x= sales, y=fct_reorder(.f = title, .x =sales), fill= artist ))+
+  geom_bar(stat = "identity") +
+  labs(title = "Sales of studio albums", x= "Sales", y= "Album titles")
+
+```
+##Part 1E: Scatter plot
+```{r}
+scat_sale <- ggplot(sales_2, aes(x=released, y=sales, col=artist)) +
+     geom_point()
+scat_sale + 
+  facet_grid(. ~ country) +
+  labs(title = "Scatter plot across countries", x= "years", y= "sales of studio albums (in millions)")
+```
+
+
+#Part 2: Exploring sentiment of lyrics
+```{r}
+library(tidytext)
+```
+
+###Part 2A: hello and goodbye Taylor
+```{r}
+ts_lyrics_token<-
+  ts_lyrics %>% 
+     unnest_tokens(output = line, 
+                   input = Lyrics, 
+                   token = "lines") %>%
+     mutate(linenumber = row_number())
+
+hello_ts<- str_subset(ts_lyrics_token$line, "hello")
+goodbye_ts <- str_subset(ts_lyrics_token$line, "goodbye")
+
+hello_ts
+summary(hello_ts)
+
+goodbye_ts
+summary(goodbye_ts)
+```
+
+
+###Part 2B hello and goodbye Beyonce
+```{r}
+hello_b<- str_subset(b_lyrics$line, "hello")
+goodbye_b<- str_subset(b_lyrics$line, "goodbye")
+
+hello_b
+summary(hello_b)
+
+goodbye_b
+summary(goodbye_b)
+```
+
+
+###Part 2C b_lyrics dataset, barchart and Wordcloud
+
+```{r}
+b_lyrics_token <- 
+  b_lyrics %>% 
+     unnest_tokens(output = word, 
+                   input = line, 
+                   token = "words") %>%
+  mutate(linenumber = row_number()) %>%
+  anti_join(stop_words) %>%
+  count(word, sort = TRUE) %>%
+ inner_join(get_sentiments("bing"))
+```
+
+####sorting row from most frequent to least frequent, and filtering top 25 words
+```{r}
+b_lyrics_token<- arrange(b_lyrics_token, desc(n)) %>%
+  head(b_lyrics_token, n=25)
+b_lyrics_token
+```
+
+
+```{r}
+b_lyrics_token %>%
+  mutate(word = fct_reorder(word, n)) %>%
+  ggplot(aes(x = n, y = word, fill= sentiment)) +
+  geom_col(show.legend = TRUE) +
+  labs(y= "Top words", x= "Frequency of words")
+```
+
+####WordCloud
+```{r}
+library(wordcloud)
+library(RColorBrewer)
+library(tm)
+pal = brewer.pal(6, "RdGy")
+```
+
+```{r}
+b_lyrics_token %>% 
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, min.freq = 1, scale = c(2, 0.5), random.color = TRUE, colors = pal))
+```
+, max.words=100, random.order=FALSE, rot.per=0.35, use.r.layout=FALSE, colors=brewer.pal(8, “Dark2”))
+
+
+
+###Part 2D ts_lyrics dataset, barchart and Wordcloud
+
+```{r}
+ts_lyrics_wtoken <- 
+  ts_lyrics %>% 
+     unnest_tokens(output = word, 
+                   input = Lyrics, 
+                   token = "words") %>%
+  mutate(linenumber = row_number()) %>%
+  anti_join(stop_words) %>%
+  count(word, sort = TRUE) %>%
+ inner_join(get_sentiments("bing"))
+```
+
+####sorting row from most frequent to least frequent, and filtering top 25 words
+```{r}
+ts_lyrics_wtoken<- arrange(ts_lyrics_wtoken, desc(n)) %>%
+  head(ts_lyrics_wtoken, n=25)
+ts_lyrics_wtoken
+```
+
+
+```{r}
+ts_lyrics_wtoken %>%
+  mutate(word = fct_reorder(word, n)) %>%
+  ggplot(aes(x = n, y = word, fill= sentiment)) +
+  geom_col(show.legend = TRUE) +
+  labs(y= "Top words", x= "Frequency of words")
+```
+
+####WordCloud
+```{r}
+library(wordcloud)
+library(RColorBrewer)
+library(tm)
+pal = brewer.pal(6, "RdGy")
+```
+
+```{r}
+ts_lyrics_wtoken %>% 
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, min.freq = 1, scale = c(2, 0.5), random.color = TRUE, colors = pal))
+```
+, max.words=100, random.order=FALSE, rot.per=0.35, use.r.layout=FALSE, colors=brewer.pal(8, “Dark2”))
+
+
+###Part 2E ts_lyrics_afinn
+
+```{r}
+get_sentiments("afinn")
+```
+
+```{r}
+ts_lyrics_wtoken <- 
+  ts_lyrics %>% 
+     unnest_tokens(output = word, 
+                   input = Lyrics, 
+                   token = "words") %>%
+  mutate(linenumber = row_number()) %>%
+  anti_join(stop_words) %>%
+  count(word, Album, sort = TRUE) %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(Album) %>%
+  summarise(mean= mean(value))
+
+ts_lyrics_wtoken
+```
+####Joining 2 datasets
+```{r}
+sales_2 <- sales_2 %>% rename_at("title", ~"Album")
+
+ts_plot<- inner_join(x= sales_2,y= ts_lyrics_wtoken, by= "Album")
+```
+
+#### ggplot
+```{r}
+ts_plot %>%
+  ggplot(aes(x = released, y = mean, color= Album)) + 
+  geom_point(aes(size= sales)) +
+  labs(title= "Sentiments of Taylor Swift's songs over the years" ,subtitle= "Analysis of taylor songs by Shubham" ,x= "Release date", y= "Average score") +
+  geom_hline(yintercept = 0) 
+```
+#####“How has the sentiment of Taylor Swift’s albums have changed over time?”
+#####Above plot shows average sentiment score in albums of Taylor Swift. We can see that average score is decreasing over the years and thus her songs are getting negative.
